@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build windows
 // +build windows
 
 package walk
@@ -15,8 +16,10 @@ import (
 
 type LinkLabel struct {
 	WidgetBase
+
 	textChangedPublisher   EventPublisher
 	linkActivatedPublisher LinkLabelLinkEventPublisher
+	textColor              Color
 }
 
 func NewLinkLabel(parent Container) (*LinkLabel, error) {
@@ -39,6 +42,16 @@ func NewLinkLabel(parent Container) (*LinkLabel, error) {
 		},
 		func(v interface{}) error {
 			return ll.SetText(assertStringOr(v, ""))
+		},
+		ll.textChangedPublisher.Event()))
+
+	ll.MustRegisterProperty("TextColor", NewProperty(
+		func() interface{} {
+			return ll.textColor
+		},
+		func(v interface{}) error {
+			ll.textColor = v.(Color)
+			return nil
 		},
 		ll.textChangedPublisher.Event()))
 
@@ -67,12 +80,28 @@ func (ll *LinkLabel) LinkActivated() *LinkLabelLinkEvent {
 	return ll.linkActivatedPublisher.Event()
 }
 
+func (ll *LinkLabel) TextColor() Color {
+	return ll.textColor
+}
+
+func (ll *LinkLabel) ReadOnly() bool {
+	return true
+}
+
 func (ll *LinkLabel) WndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case win.WM_NOTIFY:
 		nml := (*win.NMLINK)(unsafe.Pointer(lParam))
-
 		switch nml.Hdr.Code {
+		case win.NM_CUSTOMDRAW:
+			link := &LinkLabelLink{
+				ll:    ll,
+				index: int(nml.Item.ILink),
+			}
+			if ll.textColor != 0 {
+				link.SetDefaultColors(true)
+			}
+
 		case win.NM_CLICK, win.NM_RETURN:
 			link := &LinkLabelLink{
 				ll:    ll,
@@ -97,7 +126,6 @@ func (ll *LinkLabel) WndProc(hwnd win.HWND, msg uint32, wParam, lParam uintptr) 
 			break
 		}
 
-		ll.Invalidate()
 	}
 
 	return ll.WidgetBase.WndProc(hwnd, msg, wParam, lParam)
@@ -182,6 +210,10 @@ func (lll *LinkLabelLink) Visited() (bool, error) {
 
 func (lll *LinkLabelLink) SetVisited(visited bool) error {
 	return lll.setState(win.LIS_VISITED, visited)
+}
+
+func (lll *LinkLabelLink) SetDefaultColors(defaultColors bool) error {
+	return lll.setState(win.LIS_DEFAULTCOLORS|win.LIS_HOTTRACK, defaultColors)
 }
 
 func (lll *LinkLabelLink) hasState(state uint32) (bool, error) {
